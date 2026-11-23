@@ -46,7 +46,10 @@ def get_channel_videos(channel_url):
 
                 if not video_id or video.get("_type") == "playlist":
                     continue
+title = video.get("title", "").lower()
 
+if not any(keyword in title for keyword in GTA_KEYWORDS):
+    continue
                 videos.append({
                     "id": video_id,
                     "title": video.get("title", ""),
