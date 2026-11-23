@@ -1,134 +1,117 @@
 
 import json
-import re
 import subprocess
+import re
 from pathlib import Path
 
-CHANNEL_FILE = Path("channels.txt")
-OUTPUT_FILE = Path("videos.json")
+VIDEO_FILE = Path("videos.json")
+DOWNLOAD_DIR = Path("downloads")
+CLIPS_DIR = Path("clips")
 
-MAX_VIDEOS = 20
+CLIP_DURATION = 45
 
-GTA_KEYWORDS = [
-    "gta 6",
-    "gta vi",
-    "grand theft auto 6",
-    "grand theft auto vi",
-    "gta6",
-    "gta 6 gameplay",
-    "gta 6 trailer",
-    "gta 6 funny moments",
-    "gta 6 online"
-]
+DOWNLOAD_DIR.mkdir(exist_ok=True)
+CLIPS_DIR.mkdir(exist_ok=True)
 
 
-def get_channel_videos(channel_url):
-    channel_url = channel_url.strip().rstrip("/") + "/videos"
-
-    print(f"\nChecking channel: {channel_url}")
-
-    command = [
-        "yt-dlp",
-        "--flat-playlist",
-        "--dump-json",
-        "--playlist-end", str(MAX_VIDEOS),
-        channel_url
-    ]
-
+def run_command(command):
     try:
         result = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=900
         )
 
-        videos = []
-
-        for line in result.stdout.splitlines():
-            try:
-                video = json.loads(line)
-
-                video_id = video.get("id")
-                title = video.get("title", "").strip()
-
-                # Only accept real YouTube video IDs
-                if not video_id or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
-                    continue
-
-                # Ignore videos unrelated to GTA 6 by title
-                title_lower = title.lower()
-
-                if not any(keyword in title_lower for keyword in GTA_KEYWORDS):
-                    continue
-
-                videos.append({
-                    "id": video_id,
-                    "title": title,
-                    "url": f"https://www.youtube.com/watch?v={video_id}",
-                    "channel": channel_url.replace("/videos", "")
-                })
-
-            except json.JSONDecodeError:
-                continue
-
         if result.returncode != 0:
-            print("Warning:", result.stderr[-500:])
+            print(result.stderr[-1500:])
+            return False
 
-        print("GTA 6 videos found:", len(videos))
-
-        return videos
-
-    except subprocess.TimeoutExpired:
-        print("Error: Channel scan timed out.")
-        return []
+        return True
 
     except Exception as error:
         print("Error:", error)
-        return []
+        return False
+
+
+def download_video(video):
+    video_id = video["id"]
+    url = video["url"]
+
+    output_file = DOWNLOAD_DIR / f"{video_id}.mp4"
+
+    if output_file.exists():
+        print("Video already downloaded:", video_id)
+        return output_file
+
+    print("\nDownloading:", video["title"])
+
+    command = [
+        "yt-dlp",
+        "--no-playlist",
+        "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+        "--merge-output-format", "mp4",
+        "-o", str(output_file),
+        url
+    ]
+
+    if run_command(command) and output_file.exists():
+        return output_file
+
+    return None
+
+
+def create_clip(video, input_file):
+    video_id = video["id"]
+
+    output_file = CLIPS_DIR / f"{video_id}_clip.mp4"
+
+    if output_file.exists():
+        print("Clip already exists:", output_file)
+        return
+
+    print("\nCreating vertical clip:", video["title"])
+
+    command = [
+        "ffmpeg",
+        "-y",
+        "-ss", "0",
+        "-i", str(input_file),
+        "-t", str(CLIP_DURATION),
+        "-vf",
+        "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        str(output_file)
+    ]
+
+    if run_command(command):
+        print("Clip created:", output_file)
 
 
 def main():
-
-    if not CHANNEL_FILE.exists():
-        print("ERROR: channels.txt not found!")
+    if not VIDEO_FILE.exists():
+        print("videos.json not found!")
         return
 
-    channels = [
-        line.strip()
-        for line in CHANNEL_FILE.read_text(
-            encoding="utf-8"
-        ).splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
-
-    all_videos = []
-    seen_ids = set()
-
-    for channel in channels:
-
-        channel_videos = get_channel_videos(channel)
-
-        for video in channel_videos:
-
-            if video["id"] not in seen_ids:
-                all_videos.append(video)
-                seen_ids.add(video["id"])
-
-    OUTPUT_FILE.write_text(
-        json.dumps(
-            all_videos,
-            indent=2,
-            ensure_ascii=False
-        ),
-        encoding="utf-8"
+    videos = json.loads(
+        VIDEO_FILE.read_text(encoding="utf-8")
     )
 
-    print("\n========== SCAN COMPLETED ==========")
-    print("Channels checked:", len(channels))
-    print("GTA 6 videos found:", len(all_videos))
-    print("Database updated:", OUTPUT_FILE)
-    print("====================================")
+    for video in videos:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video.get("id", "")):
+            continue
+
+        input_file = download_video(video)
+
+        if input_file:
+            create_clip(video, input_file)
+
+    print("\nVideo processing completed!")
 
 
 if __name__ == "__main__":
