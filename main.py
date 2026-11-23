@@ -1,20 +1,22 @@
+
 import json
 import subprocess
 from pathlib import Path
-from datetime import datetime, timezone
 
 CHANNEL_FILE = Path("channels.txt")
 OUTPUT_FILE = Path("videos.json")
-MAX_VIDEOS = 10
+MAX_VIDEOS = 20
 
 
 def get_channel_videos(channel_url):
-    print(f"\nChecking channel: {channel_url}")
+    channel_url = channel_url.strip().rstrip("/") + "/videos"
+
+    print(f"\nChecking: {channel_url}")
 
     command = [
         "yt-dlp",
         "--flat-playlist",
-        "--dump-single-json",
+        "--dump-json",
         "--playlist-end", str(MAX_VIDEOS),
         channel_url
     ]
@@ -24,31 +26,31 @@ def get_channel_videos(channel_url):
             command,
             capture_output=True,
             text=True,
-            timeout=180
+            timeout=300
         )
 
-        if result.returncode != 0:
-            print("Channel scan failed:", result.stderr[:300])
-            return []
-
-        data = json.loads(result.stdout)
         videos = []
 
-        for video in data.get("entries", []):
-            if not video:
+        for line in result.stdout.splitlines():
+            try:
+                video = json.loads(line)
+                video_id = video.get("id")
+
+                if not video_id or video.get("_type") == "playlist":
+                    continue
+
+                videos.append({
+                    "id": video_id,
+                    "title": video.get("title", ""),
+                    "url": f"https://www.youtube.com/watch?v={video_id}",
+                    "channel": channel_url.replace("/videos", "")
+                })
+
+            except json.JSONDecodeError:
                 continue
 
-            video_id = video.get("id")
-
-            if not video_id:
-                continue
-
-            videos.append({
-                "id": video_id,
-                "title": video.get("title", ""),
-                "url": f"https://www.youtube.com/watch?v={video_id}",
-                "channel": channel_url
-            })
+        if result.returncode != 0:
+            print("Warning:", result.stderr[-500:])
 
         return videos
 
@@ -64,15 +66,9 @@ def main():
 
     channels = [
         line.strip()
-        for line in CHANNEL_FILE.read_text(
-            encoding="utf-8"
-        ).splitlines()
+        for line in CHANNEL_FILE.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.startswith("#")
     ]
-
-    if not channels:
-        print("No YouTube channels added yet.")
-        return
 
     all_videos = []
 
@@ -87,9 +83,10 @@ def main():
                 OUTPUT_FILE.read_text(encoding="utf-8")
             )
         except Exception:
-            old_videos = []
+            pass
 
     existing_ids = {v["id"] for v in old_videos}
+
     new_videos = [
         v for v in all_videos
         if v["id"] not in existing_ids
@@ -104,8 +101,8 @@ def main():
 
     print("\nScan completed!")
     print("Channels checked:", len(channels))
-    print("New videos found:", len(new_videos))
-    print("Total saved videos:", len(combined))
+    print("Videos found:", len(all_videos))
+    print("New videos:", len(new_videos))
 
 
 if __name__ == "__main__":
