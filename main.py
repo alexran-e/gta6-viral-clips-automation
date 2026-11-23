@@ -6,7 +6,15 @@ from pathlib import Path
 CHANNEL_FILE = Path("channels.txt")
 OUTPUT_FILE = Path("videos.json")
 MAX_VIDEOS = 20
-
+GTA_KEYWORDS = [
+    "gta 6",
+    "gta vi",
+    "grand theft auto 6",
+    "grand theft auto vi",
+    "gta 6 gameplay",
+    "gta 6 trailer",
+    "gta 6 funny moments"
+]
 
 def get_channel_videos(channel_url):
     channel_url = channel_url.strip().rstrip("/") + "/videos"
