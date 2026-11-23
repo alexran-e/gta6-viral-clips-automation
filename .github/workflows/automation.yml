@@ -1,3 +1,4 @@
+
 name: GTA 6 Viral Clips Automation
 
 on:
@@ -21,12 +22,17 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Scan YouTube Channels
+      - name: Scan and Create Clips
         run: python main.py
 
       - name: Save Video Database
@@ -36,3 +42,11 @@ jobs:
           git add videos.json
           git diff --cached --quiet || git commit -m "Update video database"
           git push
+
+      - name: Upload Created Clips
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta6-short-clips
+          path: clips/
+          if-no-files-found: warn
+          retention-days: 7
